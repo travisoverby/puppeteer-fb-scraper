@@ -5,7 +5,7 @@ const FB_PASSWORD = process.env.FB_PASSWORD || 'test_password';
 const FB_GROUP = process.env.FB_GROUP || 'idk';
 
 async function scrapeData(): Promise<void> {
-    const browser: Browser = await puppeteer.launch({ headless: true});
+    const browser: Browser = await puppeteer.launch({ headless: false });
     const page: Page = await browser.newPage();
 
     await page.goto('https://facebook.com');
@@ -13,23 +13,27 @@ async function scrapeData(): Promise<void> {
     await page.type('[id=pass]', FB_PASSWORD);
 
     await page.waitFor(2500);
-    await page.goto(`https://www.facebook.com/groups/${FB_GROUP}/`);
+    await page.goto(`https://www.facebook.com/${FB_ID}/`);
     await page.waitFor(6000);
 
     let elHandles: ElementHandle[] = await page.$x('//div[contains(@class, "userContentWrapper")]');
 
     let html: any = elHandles.map(element => page.evaluate(el => {
+        // pull DOM Element objects out of ElementHandle
         const firstChildEl = el.firstElementChild;
-        const username = firstChildEl.getElementsByTagName('h5')[0].textContent;
         const postContentSelector = firstChildEl.querySelectorAll("[data-testid='post_message']")[0];
         const postImageHrefSelector = firstChildEl.querySelector('a div img.scaledImageFitWidth');
+
+        const username = firstChildEl.getElementsByTagName('h5')[0].textContent;
 
         let postContent = "";
 
         if (postContentSelector) {
-            postContent = postContentSelector.textContent;
-        } else if (postImageHrefSelector) {
-            postContent = postImageHrefSelector.src;
+            postContent += postContentSelector.textContent;
+        } 
+        
+        if (postImageHrefSelector) {
+            postContent += postImageHrefSelector.src;
         }
 
         return { username, postContent };
