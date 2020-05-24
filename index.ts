@@ -1,3 +1,5 @@
+import dotenv from 'dotenv';
+dotenv.config();
 
 import puppeteer, { Browser, Page, ElementHandle } from 'puppeteer';
 const FB_EMAIL = process.env.FB_EMAIL || 'test@gmail.com';
