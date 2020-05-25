@@ -33,8 +33,9 @@ async function scrapeData(): Promise<void> {
 }
 
 async function navigate(): Promise<FBPage> {
-    const browser: Browser = await puppeteer.launch({ headless: true });
+    const browser: Browser = await puppeteer.launch({ headless: false });
     const page: Page = await browser.newPage();
+    await page.setViewport({ width: 1024, height: 768 });
 
     await page.goto('https://facebook.com');
     await page.type('[id=email]', FB_EMAIL);
