@@ -15,8 +15,12 @@ interface PostData {
     username: string;
     userID: string;
     profileURL: string;
+    pageURL: string;
+    timestamp: string;
     postContent: string;
+    children?: PostData[];
 }
+
 
 async function scrapeData(): Promise<void> {
     const { browser, page } = await navigate();
@@ -70,6 +74,7 @@ function extractElements(element: Element): PostData {
     const usernameSelector: any   = element.querySelector('h5 a');
     const postContentSelector: any = element.querySelector("[data-testid='post_message']");
     const postImageHrefSelector: any = element.querySelector('a div img.scaledImageFitWidth');
+    const timestampSelector: any = element.querySelector('span.timestampContent')?.parentElement;
     const commentLinkSelector: any = element.querySelector('form a');
 
     const username = usernameSelector.textContent || "";
@@ -77,11 +82,15 @@ function extractElements(element: Element): PostData {
 
     let postContent: string = postContentSelector ? postContentSelector.textContent : "";
     postContent = postImageHrefSelector ? `${postContent} ${postImageHrefSelector.src}` : postContent;
+
+    let timestamp = timestampSelector.title.split("at").join("");
     
     return { 
         username, 
         userID, 
         profileURL: `https://www.facebook.com/${userID}`,
+        pageURL: window.location.href,
+        timestamp,
         postContent,
     };
 }
