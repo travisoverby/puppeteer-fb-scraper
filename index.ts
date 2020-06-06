@@ -1,7 +1,9 @@
+import { promisify } from 'util';
 import dotenv from 'dotenv';
 dotenv.config();
 
 import { appendFile } from 'fs';
+const appendFilePromise = promisify(appendFile);
 
 import puppeteer, { Browser, Page, ElementHandle } from 'puppeteer';
 const FB_EMAIL = process.env.FB_EMAIL || 'test@gmail.com';
@@ -16,86 +18,127 @@ interface FBPage {
 interface PostData {
     username: string;
     userID: string;
-    profileURL: string;
-    pageURL: string;
+    pageURL?: string;
     timestamp: string;
-    postContent: string;
+    postBody: string;
     children?: PostData[];
 }
 
-function extractItems(count: number) {
+async function extractPosts(): Promise<PostData[]> {
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
     const splitUserID = (hrefString: string): string => {
+        if (hrefString.length === 0) return '';
         let hrefSplit: string[] = hrefString.split('?')[0].split("facebook.com/");
         let userID: string = hrefSplit[1];
         userID = userID === 'profile.php' ? hrefString.split('&')[0].split("facebook.com/")[1] : userID;
         return userID;
     };
 
+    const extractComments = async (element: any) => {
+        const comments: PostData[] = []
+        const commentContainer = element.lastElementChild;
+        await sleep(1000);
+        const loadCommentSelector = commentContainer?.firstElementChild?.lastElementChild?.lastElementChild?.querySelector('div a');
+        loadCommentSelector?.click();
+        await sleep(1000);
+        const loadLastCommentSelector = commentContainer?.lastElementChild?.querySelector('ul')?.nextSibling?.querySelector('a');
+        loadLastCommentSelector?.click();
+        await sleep(1000);
+
+        const extractedComments = commentContainer?.querySelectorAll('div[aria-label="Comment"]:not(.scrubbedByPuppeteer)');
+
+        for (let extractedComment of extractedComments) {
+            extractedComment.classList.add('scrubbedByPuppeteer');
+            const usernameSelector: any = extractedComment.lastElementChild?.querySelector('div a');
+            const username = usernameSelector?.textContent;
+            const userID = splitUserID(usernameSelector?.href);
+            const postBody = usernameSelector?.nextElementSibling?.textContent;
+
+            const timestampSelector = extractedComment.querySelector('abbr.livetimestamp');
+            const timestamp = new Date(parseInt(timestampSelector?.getAttribute('data-utime')) * 1000).toString();
+
+            const comment: PostData = {
+                username,
+                userID,
+                timestamp,
+                postBody,
+                children: [],
+            };
+
+            comments.push(comment);
+        }
+
+        return comments;
+    };
+
+    const posts: PostData[] = [];
     const extractedItems = document.querySelectorAll('div.userContentWrapper:not(.scrubbedByPuppeteer)');
-    const items = [];
+
     for (let element of extractedItems) {
         element.classList.add('scrubbedByPuppeteer');
-        const usernameSelector: any   = element.querySelector('h5 a');
-        const postContentSelector: any = element.querySelector("[data-testid='post_message']");
+        const usernameSelector: any = element.querySelector('h5 a');
+        const postBodySelector: any = element.querySelector("[data-testid='post_message']");
         const postImageHrefSelector: any = element.querySelector('a div img.scaledImageFitWidth');
         const timestampSelector: any = element.querySelector('span.timestampContent')?.parentElement;
 
-        const username = usernameSelector?.textContent || "";
-        const userID = usernameSelector?.href ? splitUserID(usernameSelector.href) || '';
+        const username = usernameSelector?.textContent ? usernameSelector?.textContent : '';
+        const userID = usernameSelector?.href ? splitUserID(usernameSelector.href) : '';
 
-        let postContent: string = postContentSelector ? postContentSelector.textContent : "";
-        postContent = postImageHrefSelector ? `${postContent} ${postImageHrefSelector.src}` : postContent;
+        let postBody: string = postBodySelector ? postBodySelector.textContent : '';
+        postBody = postImageHrefSelector ? `${postBody} ${postImageHrefSelector.src}` : postBody;
 
         let timestamp = new Date(parseInt(timestampSelector.getAttribute('data-utime')) * 1000).toString();
-        const item = { 
+        const post: PostData = { 
             username, 
             userID, 
-            profileURL: `https://www.facebook.com/${userID}`,
             pageURL: window.location.href,
             timestamp,
-            postContent,
+            postBody,
+            children: [],
         };
 
-        count += 1;
-        items.push(item);
+        const comments = await extractComments(element);
+        if (comments.length > 0) {
+            post.children?.push(...comments);
+        }
 
+        posts.push(post);
     }
 
-    return {
-        count,
-        items,
-    };
+    return posts;
 }
 
 async function scrapeInfiniteScrollItems(
     page: Page,
-    extractItems: any,
+    extractPosts: any,
     itemTargetCount: number,
     scrollDelay = 1000,
 ) {
-    let count: any = 0;
-    let items: any = [];
-    let res: any = {};
+    const start = Date.now();
+    let counter: number = 0;
+    let extractedPosts: any = [];
     try {
         let previousHeight;
-        while (count < itemTargetCount) {
-            res = await page.evaluate(extractItems, count);
-            count = res.count;
-            items = res.items;
+        while (counter < itemTargetCount) {
+            extractedPosts = await page.evaluate(extractPosts);
+            counter += extractedPosts.length;
+
+            extractedPosts.forEach((post: any) => {
+                appendFilePromise('./posts.json', JSON.stringify(post) + '\n');
+            });
+
             previousHeight = await page.evaluate('document.body.scrollHeight');
             await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
             await page.waitForFunction(`document.body.scrollHeight > ${previousHeight}`);
             await page.waitFor(scrollDelay);
-            items.forEach((item: any) => {
-                let json = JSON.stringify(item);
-                appendFile('./users.json', json + '\n', () => {});
-            });
+            console.log(`Processed ${counter} total posts in ${Math.floor(( Date.now() - start) / 1000 )} seconds....`);
         }
+        
     } catch (e) {
         console.error(e);
     }
 
-    return count;
 }
 
 
@@ -121,7 +164,7 @@ async function navigate(): Promise<FBPage> {
 
 (async () => {
     const { browser, page } = await navigate();
-    const count = await scrapeInfiniteScrollItems(page, extractItems, 3000);
-    console.log(count);
+    await scrapeInfiniteScrollItems(page, extractPosts, 1, 1500);
     await browser.close();
+    process.exit(1);
 })();
