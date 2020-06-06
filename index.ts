@@ -18,7 +18,7 @@ interface FBPage {
 interface PostData {
     username: string;
     userID: string;
-    pageURL?: string;
+    parentID?: string;
     timestamp: string;
     postBody: string;
     children?: PostData[];
@@ -38,13 +38,27 @@ async function extractPosts(): Promise<PostData[]> {
     const extractComments = async (element: any) => {
         const comments: PostData[] = []
         const commentContainer = element.lastElementChild;
-        await sleep(1000);
-        const loadCommentSelector = commentContainer?.firstElementChild?.lastElementChild?.lastElementChild?.querySelector('div a');
-        loadCommentSelector?.click();
-        await sleep(1000);
-        const loadLastCommentSelector = commentContainer?.lastElementChild?.querySelector('ul')?.nextSibling?.querySelector('a');
-        loadLastCommentSelector?.click();
-        await sleep(1000);
+
+        let loadCommentSelector = commentContainer?.firstElementChild?.lastElementChild?.lastElementChild?.querySelector('div a');
+        
+        if (loadCommentSelector?.textContent.length > 0) {
+            loadCommentSelector?.click();
+            await sleep(1000);
+        }
+
+        if (loadCommentSelector?.textContent.length > 0) {
+            loadCommentSelector?.click();
+            await sleep(1000);
+        }
+
+        if (loadCommentSelector?.textContent.length > 0) {
+            loadCommentSelector?.click();
+            await sleep(1000);
+        }
+        // const loadLastCommentSelector = commentContainer?.lastElementChild?.querySelector('ul')?.nextSibling?.querySelector('a');
+        // if (loadLastCommentSelector?.textContent.length > 15) {
+        //     loadLastCommentSelector?.click();
+        // }
 
         const extractedComments = commentContainer?.querySelectorAll('div[aria-label="Comment"]:not(.scrubbedByPuppeteer)');
 
@@ -92,7 +106,7 @@ async function extractPosts(): Promise<PostData[]> {
         const post: PostData = { 
             username, 
             userID, 
-            pageURL: window.location.href,
+            parentID: window.location.href,
             timestamp,
             postBody,
             children: [],
@@ -123,6 +137,10 @@ async function scrapeInfiniteScrollItems(
         while (counter < itemTargetCount) {
             extractedPosts = await page.evaluate(extractPosts);
             counter += extractedPosts.length;
+
+            if (extractedPosts.children?.length > 0) {
+                counter += extractedPosts.children.length;
+            }
 
             extractedPosts.forEach((post: any) => {
                 appendFilePromise('./posts.json', JSON.stringify(post) + '\n');
@@ -164,7 +182,7 @@ async function navigate(): Promise<FBPage> {
 
 (async () => {
     const { browser, page } = await navigate();
-    await scrapeInfiniteScrollItems(page, extractPosts, 1, 1500);
+    await scrapeInfiniteScrollItems(page, extractPosts, 250, 2000);
     await browser.close();
     process.exit(1);
 })();
